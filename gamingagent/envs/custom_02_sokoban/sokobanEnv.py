@@ -17,17 +17,17 @@ from gymnasium.core import RenderFrame
 # For this refactor, we will redefine it here, taking inspiration from sokoban_env.py.
 
 # --- Constants and Asset Paths (from sokoban_env.py) ---
-ACTION_LOOKUP = { # Simplified, adapter will handle mapping from string like "up"
-    0: 'no operation',
-    1: 'push up',
-    2: 'push down',
-    3: 'push left',
-    4: 'push right',
-    5: 'move up',
-    6: 'move down',
-    7: 'move left',
-    8: 'move right',
-}
+# ACTION_LOOKUP = { # Simplified, adapter will handle mapping from string like "up"
+#     0: 'no operation',
+#     1: 'push up',
+#     2: 'push down',
+#     3: 'push left',
+#     4: 'push right',
+#     5: 'move up',
+#     6: 'move down',
+#     7: 'move left',
+#     8: 'move right',
+# }
 
 # Raw actions for the environment itself (0-3 for up, down, left, right)
 # These are the actions the _push and _move would expect if we simplify.
@@ -67,15 +67,17 @@ def load_sokoban_asset_image(path, size):
         return img.resize(size, Image.Resampling.LANCZOS)
     except Exception: return None
 
-def create_board_image_sokoban(board_state: np.ndarray, save_path: str, tile_size: int = 32, perf_score: Optional[float] = None, action_taken_str: Optional[str] = None):
+def create_board_image_sokoban(board_state: np.ndarray, save_path: Optional[str] = None, tile_size: int = 32, perf_score: Optional[float] = None, action_taken_str: Optional[str] = None) -> Optional[np.ndarray]:
     if board_state is None:
         img = Image.new('RGB', (tile_size * 5, tile_size * 5), (128, 128, 128)) # Default small error image
         draw = ImageDraw.Draw(img)
         draw.text((10,10), "Error: No board state", fill=(255,0,0))
         if save_path:
-             os.makedirs(os.path.dirname(save_path), exist_ok=True)
-             img.save(save_path)
-        return
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            img.save(save_path)
+            return None
+        else:
+            return np.array(img)
 
     rows, cols = board_state.shape
     img_width = cols * tile_size
@@ -159,6 +161,9 @@ def create_board_image_sokoban(board_state: np.ndarray, save_path: str, tile_siz
         save_dir = os.path.dirname(save_path)
         if save_dir: os.makedirs(save_dir, exist_ok=True)
         img.save(save_path)
+        return None
+    else:
+        return np.array(img)
 
 
 class SokobanEnv(gym.Env):
@@ -178,7 +183,8 @@ class SokobanEnv(gym.Env):
                  observation_mode_for_adapter: str = "vision",
                  agent_cache_dir_for_adapter: str = "cache/sokoban/default_run",
                  game_specific_config_path_for_adapter: str = "gamingagent/envs/custom_02_sokoban/game_env_config.json",
-                 max_stuck_steps_for_adapter: Optional[int] = 20
+                 max_stuck_steps_for_adapter: Optional[int] = 20,
+                 benchmark_mode: bool = True,
                  ):
         
         self.dim_room = dim_room
@@ -188,6 +194,7 @@ class SokobanEnv(gym.Env):
         self.tile_size_for_render = tile_size_for_render
         self.current_level = level_to_load if level_to_load is not None else 1
         self.max_level = 6  # Maximum level number in levels.txt
+        self.benchmark_mode = benchmark_mode
         
         if num_gen_steps is None and not self.level_to_load : 
             self.num_gen_steps = int(1.7 * (self.dim_room[0] + self.dim_room[1]))
@@ -217,7 +224,8 @@ class SokobanEnv(gym.Env):
             observation_mode=observation_mode_for_adapter,
             agent_cache_dir=agent_cache_dir_for_adapter,
             game_specific_config_path=game_specific_config_path_for_adapter, # Adapter loads its own action mapping
-            max_steps_for_stuck=max_stuck_steps_for_adapter
+            max_steps_for_stuck=max_stuck_steps_for_adapter,
+            benchmark_mode=benchmark_mode,
         )
 
         # Sokoban-specific performance score tracking
@@ -231,6 +239,10 @@ class SokobanEnv(gym.Env):
         self.boxes_on_target: int = 0
         self.num_env_steps: int = 0
         self.current_reward_last_step: float = 0.0
+        
+        # Track action effectiveness and win state
+        self.action_is_effective: bool = False
+        self.won: bool = False
         
         self.predefined_levels: Dict[int, List[str]] = {}
         self._load_predefined_levels() # Load levels from levels.txt
@@ -375,6 +387,10 @@ class SokobanEnv(gym.Env):
         # Reset Sokoban-specific performance score trackers
         self.previous_boxes_on_target_for_perf = 0
         self.current_episode_cumulative_perf_score = 0.0
+        
+        # Reset action effectiveness and win state tracking
+        self.action_is_effective = False
+        self.won = False
 
         level_loaded_ok = False
         if self.level_to_load and self.level_to_load in self.predefined_levels:
@@ -397,8 +413,11 @@ class SokobanEnv(gym.Env):
         img_path_for_adapter = None
         text_representation_for_adapter = None
         if self.adapter.observation_mode in ["vision", "both"]:
-            img_path_for_adapter = self.adapter._create_agent_observation_path(self.adapter.current_episode_id, self.adapter.current_step_num)
-            create_board_image_sokoban(raw_board_obs, img_path_for_adapter, tile_size=self.tile_size_for_render, perf_score=initial_perf_score)
+            if self.benchmark_mode:
+                img_path_for_adapter = self.adapter._create_agent_observation_path(self.adapter.current_episode_id, self.adapter.current_step_num)
+                create_board_image_sokoban(raw_board_obs, img_path_for_adapter, tile_size=self.tile_size_for_render, perf_score=initial_perf_score)
+            else:
+                img_path_for_adapter = create_board_image_sokoban(raw_board_obs, None, self.tile_size_for_render, perf_score=initial_perf_score)
         
         if self.adapter.observation_mode in ["text", "both"]:
             char_board_2d_list = [[ROOM_STATE_TO_CHAR.get(tile, '?') for tile in row] for row in raw_board_obs.tolist()]
@@ -412,6 +431,9 @@ class SokobanEnv(gym.Env):
         )
 
         if self.render_mode == "human": self._render_frame()
+
+        if not self.benchmark_mode:
+            agent_observation = self.render()
         return agent_observation, info_dict
 
     def _get_raw_board_obs(self) -> np.ndarray:
@@ -424,7 +446,9 @@ class SokobanEnv(gym.Env):
             "boxes_on_target": self.boxes_on_target,
             "num_boxes": self.num_boxes_current,
             "all_boxes_on_target": self._check_if_all_boxes_on_target(),
-            "reward_last_step": self.current_reward_last_step
+            "reward_last_step": self.current_reward_last_step,
+            "action_is_effective": self.action_is_effective,
+            "won": self.won,
         }
 
     def _check_if_all_boxes_on_target(self) -> bool:
@@ -522,7 +546,8 @@ class SokobanEnv(gym.Env):
             '$': 'Box',
             '?': 'Dock',
             '*': 'Box on Dock',
-            ' ': 'Empty'
+            ' ': 'Empty',
+            'S': 'Worker on Dock'
         }
         
         table_rows = [header, line_separator]
@@ -555,12 +580,15 @@ class SokobanEnv(gym.Env):
         truncated = False
         
         if env_action_idx is not None and self.action_space.contains(env_action_idx):
-            self._internal_push_or_move(env_action_idx)
+            moved_player, moved_box = self._internal_push_or_move(env_action_idx)
+            self.action_is_effective = moved_player or moved_box
             reward = self._calc_reward()
             terminated = self._check_if_all_boxes_on_target()
+            # Update won state
+            self.won = terminated
             
             # If level is completed, try to progress to next level
-            if terminated and self._progress_to_next_level():
+            if terminated and self.benchmark_mode and self._progress_to_next_level():
                 # Reset the environment for the new level
                 self.reset()
                 # Return the new observation and info
@@ -571,8 +599,11 @@ class SokobanEnv(gym.Env):
                 img_path_for_adapter = None
                 text_representation_for_adapter = None
                 if self.adapter.observation_mode in ["vision", "both"]:
-                    img_path_for_adapter = self.adapter._create_agent_observation_path(self.adapter.current_episode_id, self.adapter.current_step_num)
-                    create_board_image_sokoban(raw_board_obs, img_path_for_adapter, tile_size=self.tile_size_for_render, perf_score=current_perf_score, action_taken_str=agent_action_str)
+                    if self.benchmark_mode:
+                        img_path_for_adapter = self.adapter._create_agent_observation_path(self.adapter.current_episode_id, self.adapter.current_step_num)
+                        create_board_image_sokoban(raw_board_obs, img_path_for_adapter, tile_size=self.tile_size_for_render, perf_score=current_perf_score)
+                    else:
+                        img_path_for_adapter = create_board_image_sokoban(raw_board_obs, None, self.tile_size_for_render, perf_score=current_perf_score)
                 
                 if self.adapter.observation_mode in ["text", "both"]:
                     char_board_2d_list = [[ROOM_STATE_TO_CHAR.get(tile, '?') for tile in row] for row in raw_board_obs.tolist()]
@@ -583,11 +614,15 @@ class SokobanEnv(gym.Env):
                     text_representation=text_representation_for_adapter
                 )
                 
+                if not self.benchmark_mode:
+                    agent_observation = self.render()
                 return agent_observation, reward, False, False, info_dict, current_perf_score
         else: # Invalid or no action from agent
             print(f"[SokobanEnv] Action '{agent_action_str}' (mapped to {env_action_idx}) is skip/invalid. Env not stepped.")
             reward = self.penalty_for_step
             terminated = self._check_if_all_boxes_on_target()
+            self.action_is_effective = False
+            self.won = terminated
 
         self.num_env_steps += 1
         truncated = self._check_if_maxsteps()
@@ -600,8 +635,11 @@ class SokobanEnv(gym.Env):
         img_path_for_adapter = None
         text_representation_for_adapter = None
         if self.adapter.observation_mode in ["vision", "both"]:
-            img_path_for_adapter = self.adapter._create_agent_observation_path(self.adapter.current_episode_id, self.adapter.current_step_num)
-            create_board_image_sokoban(raw_board_obs, img_path_for_adapter, tile_size=self.tile_size_for_render, perf_score=current_perf_score, action_taken_str=agent_action_str)
+            if self.benchmark_mode:
+                img_path_for_adapter = self.adapter._create_agent_observation_path(self.adapter.current_episode_id, self.adapter.current_step_num)
+                create_board_image_sokoban(raw_board_obs, img_path_for_adapter, tile_size=self.tile_size_for_render, perf_score=current_perf_score)
+            else:
+                img_path_for_adapter = create_board_image_sokoban(raw_board_obs, None, self.tile_size_for_render, perf_score=current_perf_score)
         
         if self.adapter.observation_mode in ["text", "both"]:
             char_board_2d_list = [[ROOM_STATE_TO_CHAR.get(tile, '?') for tile in row] for row in raw_board_obs.tolist()]
@@ -612,22 +650,25 @@ class SokobanEnv(gym.Env):
             text_representation=text_representation_for_adapter
         )
         
-        final_terminated, final_truncated = self.adapter.verify_termination(agent_observation, terminated, truncated)
+        if self.benchmark_mode:
+            # check unchanged steps only for benchmark mode
+            final_terminated, final_truncated = self.adapter.verify_termination(agent_observation, terminated, truncated)
 
-        self.adapter.log_step_data(
-            agent_action_str=agent_action_str,
-            thought_process=thought_process,
-            reward=reward,
-            info=info_dict,
-            terminated=final_terminated,
-            truncated=final_truncated,
-            time_taken_s=time_taken_s,
-            perf_score=current_perf_score,
-            agent_observation=agent_observation
-        )
-
-        if self.render_mode == "human": self._render_frame()
-        return agent_observation, reward, final_terminated, final_truncated, info_dict, current_perf_score
+            self.adapter.log_step_data(
+                agent_action_str=agent_action_str,
+                thought_process=thought_process,
+                reward=reward,
+                info=info_dict,
+                terminated=final_terminated,
+                truncated=final_truncated,
+                time_taken_s=time_taken_s,
+                perf_score=current_perf_score,
+                agent_observation=agent_observation
+            )
+            if self.render_mode == "human": self._render_frame()
+            return agent_observation, reward, final_terminated, final_truncated, info_dict, current_perf_score
+        else:
+            return self.render(), reward, terminated, truncated, info_dict, current_perf_score
 
     def render(self) -> Optional[Union[RenderFrame, List[RenderFrame]]]: # Type hint from gym.Env
         if self.render_mode == "rgb_array":
@@ -642,16 +683,18 @@ class SokobanEnv(gym.Env):
     def _render_frame_rgb(self) -> Optional[np.ndarray]:
         if self.room_state is None: return None
         
+        if self.benchmark_mode:
         # Create a temporary path to save the image, then load it as numpy array
         # This is a bit indirect but reuses create_board_image_sokoban
-        temp_img_path = os.path.join(self.adapter.agent_cache_dir, "_temp_render.png")
-        create_board_image_sokoban(self.room_state, temp_img_path, self.tile_size_for_render)
-        if os.path.exists(temp_img_path):
-            img = Image.open(temp_img_path).convert('RGB')
-            rgb_array = np.array(img)
-            os.remove(temp_img_path)
-            return rgb_array
-        return None
+            temp_img_path = os.path.join(self.adapter.agent_cache_dir, "_temp_render.png")
+            create_board_image_sokoban(self.room_state, temp_img_path, self.tile_size_for_render)
+            if os.path.exists(temp_img_path):
+                img = Image.open(temp_img_path).convert('RGB')
+                rgb_array = np.array(img)
+                os.remove(temp_img_path)
+                return rgb_array
+        else:
+            return create_board_image_sokoban(self.room_state, None, self.tile_size_for_render)
 
     def _render_frame(self): # For human mode
         if self.room_state is None: return
@@ -687,7 +730,8 @@ class SokobanEnv(gym.Env):
             pygame.quit()
             self.window = None
             self.clock = None
-        self.adapter.close_log_file()
+        if self.benchmark_mode:
+            self.adapter.close_log_file()
         print("[SokobanEnv] Closed.")
 
     def calculate_perf_score(self, reward: float, info: Dict[str, Any]) -> float:
