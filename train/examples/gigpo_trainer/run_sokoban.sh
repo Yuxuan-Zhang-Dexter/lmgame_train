@@ -8,11 +8,12 @@ group_size=8
 mode="mean_norm" # "mean_norm" or "mean_std_norm"
 
 # seems to be math dataset
+# remove will cause error, so still use it for now
 
-# python3 -m examples.data_preprocess.prepare \
-#     --mode 'visual' \
-#     --train_data_size $train_data_size \
-#     --val_data_size $val_data_size
+python3 -m examples.data_preprocess.prepare \
+    --mode 'visual' \
+    --train_data_size $train_data_size \
+    --val_data_size $val_data_size
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gigpo \
