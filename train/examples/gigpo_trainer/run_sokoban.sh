@@ -2,19 +2,23 @@ set -x
 ENGINE=${1:-vllm}
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
+# make it small to debug
+# train_data_size=8
+# val_data_size=8
 train_data_size=32
 val_data_size=128
 group_size=8
 mode="mean_norm" # "mean_norm" or "mean_std_norm"
 
-# seems to be math dataset
-# remove will cause error, so still use it for now
+# if it's the first time to run, need to prepare data
+# Safe to comment this out if it is not the first time to run
 
 python3 -m examples.data_preprocess.prepare \
     --mode 'visual' \
     --train_data_size $train_data_size \
     --val_data_size $val_data_size
 
+# run the training, adjust n_gpus_per_node to control the number of GPUs
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gigpo \
     data.train_files=data/visual/train.parquet \

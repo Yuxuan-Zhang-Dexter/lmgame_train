@@ -50,32 +50,33 @@ class SokobanWorker:
         rendered = self.env.render()
         return rendered
 
-@ray.remote(num_cpus=0.25)
-class OldSokobanWorker:
-    """
-    Ray remote actor that replaces the worker function.
-    Each actor holds its own independent instance of SokobanEnv.
-    """
+# sokoban worker from verl-agent
+# @ray.remote(num_cpus=0.25)
+# class SokobanWorker:
+#     """
+#     Ray remote actor that replaces the worker function.
+#     Each actor holds its own independent instance of SokobanEnv.
+#     """
     
-    def __init__(self, mode, env_kwargs):
-        """Initialize the Sokoban environment in this worker"""
-        self.env = SokobanEnv(mode, **env_kwargs)
-        self.mode = mode
+#     def __init__(self, mode, env_kwargs):
+#         """Initialize the Sokoban environment in this worker"""
+#         self.env = SokobanEnv(mode, **env_kwargs)
+#         self.mode = mode
     
-    def step(self, action):
-        """Execute a step in the environment"""
-        obs, reward, done, info = self.env.step(action)
-        return obs, reward, done, info
+#     def step(self, action):
+#         """Execute a step in the environment"""
+#         obs, reward, done, info = self.env.step(action)
+#         return obs, reward, done, info
     
-    def reset(self, seed_for_reset):
-        """Reset the environment with given seed"""
-        obs, info = self.env.reset(seed=seed_for_reset)
-        return obs, info
+#     def reset(self, seed_for_reset):
+#         """Reset the environment with given seed"""
+#         obs, info = self.env.reset(seed=seed_for_reset)
+#         return obs, info
     
-    def render(self):
-        """Render the environment"""
-        rendered = self.env.render(mode=self.mode)
-        return rendered
+#     def render(self):
+#         """Render the environment"""
+#         rendered = self.env.render(mode=self.mode)
+#         return rendered
 
 
 class SokobanMultiProcessEnv(gym.Env):
