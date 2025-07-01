@@ -366,8 +366,6 @@ class SokobanEnv(gym.Env):
             return True
         except Exception as e:
             print(f"[SokobanEnv] Failed to generate procedural level: {e}. Fallback to empty level.")
-            # Fallback to a simple empty level if generation fails
-            self.dim_room = (5,5) # Smaller default
             self.room_fixed = np.ones(self.dim_room, dtype=np.uint8)
             self.room_state = np.ones(self.dim_room, dtype=np.uint8)
             self.room_fixed[0,:]=0; self.room_fixed[-1,:]=0; self.room_fixed[:,0]=0; self.room_fixed[:,-1]=0 # Walls
@@ -547,7 +545,7 @@ class SokobanEnv(gym.Env):
             '?': 'Dock',
             '*': 'Box on Dock',
             ' ': 'Empty',
-            'S': 'Worker on Dock'
+            '+': 'Worker on Dock'
         }
         
         table_rows = [header, line_separator]
@@ -556,7 +554,7 @@ class SokobanEnv(gym.Env):
         for row_idx, row in enumerate(matrix):
             for col_idx, cell in enumerate(row):
                 item_type = item_map.get(cell, 'Unknown')
-                table_rows.append(f"{item_id:<3} | {item_type:<12} | ({col_idx}, {row_idx})")
+                table_rows.append(f"{item_id:<3} | {item_type:<14} | ({col_idx}, {row_idx})")
                 item_id += 1
         
         return "\n".join(table_rows)
